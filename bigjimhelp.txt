@@ -1,0 +1,55 @@
+BIG JIM POKER - JOHNATHAN BROWNING
+
+
+Possible values for user inputs:
+
+	<value> = 2,3,4,5,6,7,8,9,T,J,Q,K,A,
+							  t,j,q,k,a
+	<suit> = C,D,H,S,
+		 	c,d,h,s
+
+
+Answering Jim's questions:
+		
+	Question:							Valid input:
+
+	"What are the stack sizes?"			<int>							-	the amount of starting chips for both players
+
+	"Small and big blind?"				<int1> <int2>					-	the small blind (int1) and the big blind (int2)
+
+	"What's my position?"				<int>							-	0 for when Jim is small blind, 1 for when Jim is big blind
+
+	"What's my hand?"					<value> <suit> <value> <suit>	-	Jim's hand, see possible values for input above
+
+	"Now what?"							<command>						-	Enter any of the commands below
+
+
+Commands:
+
+	flop <value> <suit> <value> <suit> <value> <suit>	-	inputs flop of 3 cards
+
+	turn <value> <suit>									-	inputs turn of 1 card
+
+	river <value> <suit>								-	inputs river of 1 card
+
+	fold												-	for when opponent folds
+
+	check												-	for when opponent checks
+
+	call												-	for when opponent calls
+
+	raise <amt>											-	for when opponent raises by <amt>
+
+	win													-	for when Jim wins the pot
+
+	lose												-	for when Jim loses the pot
+
+	act													-	for when it's Jim's turn to act
+
+	reset <amt1> <amt2>									-	for resetting stack sizes to <amt1>, Jim's stack, and <amt2>, opponent's stack
+
+	blinds <amt1> <amt2>								-	for changing the blinds to <amt1>, the small blind, and <amt2>, the big blind
+
+	range												-	has Jim output the range of hands he puts his opponent on with values 2-14
+														    corresponding to 2 through Ace, and suits 1,2,3,4 meaning c,d,h,s, respectively
+
