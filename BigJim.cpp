@@ -20,6 +20,7 @@ typedef struct Hand {
 	bool aggressor;
 	int oppRange[1326][4];
 	int myRange[1326][4];
+	int numBets;
 	//Constructor, sets defaults for beginning of a hand
 	Hand(int small=0,int big=0) {
 		int deck[52][2] = {
@@ -29,6 +30,7 @@ typedef struct Hand {
 			{2,4},{3,4},{4,4},{5,4},{6,4},{7,4},{8,4},{9,4},{10,4},{11,4},{12,4},{13,4},{14,4},
 		};
 		stage=0;
+		numBets=0;
 		potSize=big+small;
 		callSize=big-small;
 		int n=52,r=2;
@@ -168,6 +170,7 @@ int main() {
 						hand.flop[i/2][i%2]=charToInt(hold[i]);
 					}
 					hand.stage=1;
+					hand.numBets=0;
 				//turn command - for inputing the turn card
 				} else if (command=="turn") {
 					cin>>hold[0]>>hold[1];
@@ -175,6 +178,7 @@ int main() {
 						hand.turn[i/2][i%2]=charToInt(hold[i]);
 					}
 					hand.stage=2;
+					hand.numBets=0;
 				//river command - for inputing the river card
 				} else if (command=="river") {
 					cin>>hold[0]>>hold[1];
@@ -182,6 +186,7 @@ int main() {
 						hand.river[i/2][i%2]=charToInt(hold[i]);
 					}
 					hand.stage=3;
+					hand.numBets=0;
 				//fold command - Jim's opponent folds
 				} else if (command=="fold") {
 					myStack+=hand.potSize;
@@ -193,18 +198,29 @@ int main() {
 				//check command - Jim's opponent checks
 				} else if (command=="check") {
 					hand.callSize=0;
-					float equity=.8;
+					if(hand.stage==0) {
+						float equityU=.6f;
+						updateRange2(equityU,&hand.oppRange,&hand.myRange,deck,hand);
+					}
+					float equity=.8f;
 					updateRange2(equity,&hand.oppRange,&hand.myRange,deck,hand);
 				//call command - Jim's opponent calls
 				} else if (command=="call") {
 					oppStack-=hand.callSize;
 					hand.potSize+=hand.callSize;
+					if(hand.stage==0 && hand.numBets==0) {
+						float equityL=.4f;
+						float equityU=.6f;
+						updateRange(equityL,&hand.oppRange,&hand.myRange,deck,hand);
+						updateRange2(equityU,&hand.oppRange,&hand.myRange,deck,hand);
+					}
 					float equity=(1.0*hand.callSize)/(1.0*hand.potSize);
 					updateRange(equity,&hand.oppRange,&hand.myRange,deck,hand);
 					hand.callSize=0;
 					hand.stage++;
 				//raise command - Jim's opponent raises by a given value
 				} else if (command=="raise") {
+					hand.numBets++;
 					hand.potSize+=hand.callSize;
 					oppStack-=hand.callSize;
 					int pre=hand.callSize;
@@ -219,10 +235,17 @@ int main() {
 					oppStack-=hand.callSize;
 					// float equity=(1.0*pre+callSize)/(1.0*potSize);
 					// updateRange(equity,&myRange,&oppRange,stage,myCards,deck,flop,turn,river);
+					if(hand.stage==0) {
+						float equity=.5f;
+						updateRange(equity,&hand.oppRange,&hand.myRange,deck,hand);
+					}
 					float e=(1.0*hand.callSize)/(1.0*hand.potSize+hand.callSize);
-					float foldEq=foldEquity(e,&hand.oppRange,&hand.myRange,deck,hand);
+					float foldEq=foldEquity(e,&hand.myRange,&hand.oppRange,deck,hand);
 					float equity=foldEq+(1-foldEq)*(e);
-					updateRange(equity,&hand.myRange,&hand.oppRange,deck,hand);
+					for(int i=1;i<hand.numBets;i++) {
+						equity+=(1-equity)/2;
+					}
+					updateRange(equity,&hand.oppRange,&hand.myRange,deck,hand);
 					action(deck,hand,&myStack,&oppStack,big);
 				//win command - Jim wins the pot
 				} else if (command=="win") {
@@ -574,7 +597,6 @@ void action(int deck[52][2],Hand& hand,int *myStack,int *oppStack,int big) {
 	int turnDeck[46][2];
 	int riverDeck[45][2];
 
-	//long series of if statements to determine whether to fold, check, call, or raise, with a mix randomness and logic 
 	if (hand.stage==0) {
 
 		int j=0;
@@ -587,62 +609,30 @@ void action(int deck[52][2],Hand& hand,int *myStack,int *oppStack,int big) {
 		}
 		
 		float winRate = simHands(hand.myCards,50,preflopDeck,10000,hand,&hand.oppRange,&hand.myRange,false);
-		cout<<winRate<<endl;
+		float rangeWinRate = simHands(hand.myCards,50,preflopDeck,10000,hand,&hand.oppRange,&hand.myRange,true);
+		cout<<winRate<<","<<rangeWinRate<<endl;
 
-		if(hand.position==0) {
-			default_random_engine generator;
-			uniform_int_distribution<int> distribution(0,20);
-			int callUpTo=30+distribution(generator);
-			int raiseAfter=70+distribution(generator);
-			if(hand.callSize==big/2) {
-				if(winRate<40) {
-					Fold(myStack,oppStack,hand);
-					return;
-				} else if (winRate<callUpTo) {
-					Call(myStack,oppStack,hand,deck);
-					return;
-				} else {
-					Raise(myStack,oppStack,hand,2*big,deck);
-					return;
-				}
+		if(hand.callSize == 0) {
+			if(winRate > 60) {
+				Raise(myStack,oppStack,hand,2*big,deck);
 			} else {
-				if(winRate>raiseAfter) {
-					Raise(myStack,oppStack,hand,3*hand.callSize,deck);
-					return;
-				} else if ((hand.callSize<=hand.potSize-hand.callSize && winRate>100*hand.callSize/(hand.potSize+hand.callSize)) || winRate>60) {
-					Call(myStack,oppStack,hand,deck);
-					return;
-				} else {
-					Fold(myStack,oppStack,hand);
-					return;
-				}
+				Check(myStack,oppStack,hand,deck);
+			}
+		} else if (hand.callSize == big/2) {
+			if(winRate > 45) {
+				Raise(myStack,oppStack,hand,hand.potSize,deck);
+			} else {
+				Fold(myStack,oppStack,hand);
 			}
 		} else {
-			default_random_engine generator;
-			uniform_int_distribution<int> distribution(0,15);
-			int checkUpTo=60+distribution(generator);
-			int raiseAfter=70+distribution(generator);
-			if(hand.callSize==0) {
-				if(winRate<checkUpTo) {
-					Check(myStack,oppStack,hand,deck);
-					return;
-				} else {
-					Raise(myStack,oppStack,hand,3*big,deck);
-					return;
-				}
+			if(winRate > 80) {
+				Raise(myStack,oppStack,hand,hand.potSize,deck);
+			} else if (winRate > 100 * hand.callSize / (hand.potSize+hand.callSize) || winRate > 60) {
+				Call(myStack,oppStack,hand,deck);
 			} else {
-				if(winRate>raiseAfter) {
-					Raise(myStack,oppStack,hand,3*hand.callSize,deck);
-					return;
-				} else if((hand.callSize<=hand.potSize-hand.callSize && winRate>100*hand.callSize/(hand.potSize+hand.callSize)) || winRate>60) {
-					Call(myStack,oppStack,hand,deck);
-					return;
-				} else {
-					Fold(myStack,oppStack,hand);
-					return;
-				}
+				Fold(myStack,oppStack,hand);
 			}
-		} 
+		}
 
 	} else if(hand.stage==1) {
 
@@ -656,86 +646,27 @@ void action(int deck[52][2],Hand& hand,int *myStack,int *oppStack,int big) {
 		}
 
 		float winRate = simHands(hand.myCards,47,flopDeck,10000,hand,&hand.oppRange,&hand.myRange,false);
-		cout<<winRate<<endl;
+		float rangeWinRate = simHands(hand.myCards,47,flopDeck,10000,hand,&hand.oppRange,&hand.myRange,true);
+		cout<<winRate<<","<<rangeWinRate<<endl;
 
-		default_random_engine generator;
-		uniform_int_distribution<int> distribution(0,15);
-		if(hand.callSize==0) {
-			if(hand.aggressor) {
-				int checkUpTo=35+distribution(generator);
-				int thirdPot=60+distribution(generator);
-				int halfPot=thirdPot+20;
-				if(winRate<checkUpTo) {
-					default_random_engine gen;
-					uniform_int_distribution<int> distr(-1,3);
-					int bluff = distr(gen);
-					if(bluff<=0) {
-						Check(myStack,oppStack,hand,deck);
-					} else {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/bluff),deck);
-					}
-					return;
-				} else {
-					if(winRate<thirdPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/3.0),deck);
-						return;
-					} else if (winRate<halfPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/2.0),deck);
-						return;
-					} else {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)),deck);
-						return;
-					}
-				}
+		if(hand.callSize == 0) {
+			if(rangeWinRate > 60) {
+				Raise(myStack,oppStack,hand,(rangeWinRate/100)*hand.potSize,deck);
+			} else if (winRate > 50) {
+				Raise(myStack,oppStack,hand,(winRate/100)*hand.potSize,deck);
 			} else {
-				int checkUpTo=50+distribution(generator);
-				int thirdPot=65+distribution(generator);
-				int halfPot=thirdPot+20;
-				if(winRate<checkUpTo) {
-					default_random_engine gen;
-					uniform_int_distribution<int> distr(0,5);
-					uniform_int_distribution<int> distri(1,3);
-					int bluff = distr(gen);
-					int size = distri(gen);
-					if(bluff==0) {
-						Check(myStack,oppStack,hand,deck);
-					} else {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/size),deck);
-					}
-					return;
-				} else {
-					if(winRate<thirdPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/3.0),deck);
-						return;
-					} else if (winRate<halfPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/2.0),deck);
-						return;
-					} else {
-						default_random_engine gen;
-						uniform_int_distribution<int> distr(0,1);
-						int rand=distr(gen);
-						if(rand==0) {
-							Raise(myStack,oppStack,hand,(int)((hand.potSize)),deck);
-						} else {
-							Check(myStack,oppStack,hand,deck);
-						}
-						return;
-					}
-				}
+				Check(myStack,oppStack,hand,deck);
 			}
 		} else {
-			int raiseAfter=70+distribution(generator);
-			if(winRate>raiseAfter) {
-				Raise(myStack,oppStack,hand,3*hand.callSize,deck);
-				return;
-			} else if ((hand.callSize<=hand.potSize-hand.callSize && winRate>100*hand.callSize/(hand.potSize+hand.callSize)) || winRate>75) {
+			if(winRate > 70 || rangeWinRate > 60) {
+				Raise(myStack,oppStack,hand,(rangeWinRate/100)*hand.potSize,deck);
+			} else if((winRate > 100 * hand.callSize / (hand.potSize+hand.callSize) && !(winRate < 35)) || potential(hand.myCards,hand)) {
 				Call(myStack,oppStack,hand,deck);
-				return;
 			} else {
 				Fold(myStack,oppStack,hand);
-				return;
 			}
 		}
+		
 	} else if (hand.stage==2) {
 
 		int j=0;
@@ -748,84 +679,24 @@ void action(int deck[52][2],Hand& hand,int *myStack,int *oppStack,int big) {
 		}
 
 		float winRate = simHands(hand.myCards,46,turnDeck,10000,hand,&hand.oppRange,&hand.myRange,false);
-		cout<<winRate<<endl;
+		float rangeWinRate = simHands(hand.myCards,46,turnDeck,10000,hand,&hand.oppRange,&hand.myRange,true);
+		cout<<winRate<<","<<rangeWinRate<<endl;
 
-		default_random_engine generator;
-		uniform_int_distribution<int> distribution(0,15);
-		if(hand.callSize==0) {
-			if(hand.aggressor) {
-				int checkUpTo=35+distribution(generator);
-				int thirdPot=60+distribution(generator);
-				int halfPot=thirdPot+20;
-				if(winRate<checkUpTo) {
-					default_random_engine gen;
-					uniform_int_distribution<int> distr(-1,3);
-					int bluff = distr(gen);
-					if(bluff<=0) {
-						Check(myStack,oppStack,hand,deck);
-					} else {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/bluff),deck);
-					}
-					return;
-				} else {
-					if(winRate<thirdPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/3.0),deck);
-						return;
-					} else if (winRate<halfPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/2.0),deck);
-						return;
-					} else {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)),deck);
-						return;
-					}
-				}
+		if(hand.callSize == 0) {
+			if(rangeWinRate > 60) {
+				Raise(myStack,oppStack,hand,(rangeWinRate/100)*hand.potSize,deck);
+			} else if (winRate > 50) {
+				Raise(myStack,oppStack,hand,(winRate/100)*hand.potSize,deck);
 			} else {
-				int checkUpTo=50+distribution(generator);
-				int thirdPot=65+distribution(generator);
-				int halfPot=thirdPot+20;
-				if(winRate<checkUpTo) {
-					default_random_engine gen;
-					uniform_int_distribution<int> distr(0,5);
-					uniform_int_distribution<int> distri(1,3);
-					int bluff = distr(gen);
-					int size = distri(gen);
-					if(bluff==0) {
-						Check(myStack,oppStack,hand,deck);
-					} else {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/size),deck);
-					}
-					return;
-				} else {
-					if(winRate<thirdPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/3.0),deck);
-						return;
-					} else if (winRate<halfPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/2.0),deck);
-						return;
-					} else {
-						default_random_engine gen;
-						uniform_int_distribution<int> distr(0,1);
-						int rand=distr(gen);
-						if(rand==0) {
-							Raise(myStack,oppStack,hand,(int)((hand.potSize)),deck);
-						} else {
-							Check(myStack,oppStack,hand,deck);
-						}
-						return;
-					}
-				}
+				Check(myStack,oppStack,hand,deck);
 			}
 		} else {
-			int raiseAfter=70+distribution(generator);
-			if(winRate>raiseAfter) {
-				Raise(myStack,oppStack,hand,3*hand.callSize,deck);
-				return;
-			} else if ((hand.callSize<=hand.potSize-hand.callSize && winRate>100*hand.callSize/(hand.potSize+hand.callSize)) || winRate>75) {
+			if(winRate > 70 || rangeWinRate > 60) {
+				Raise(myStack,oppStack,hand,(rangeWinRate/100)*hand.potSize,deck);
+			} else if((winRate > 100 * hand.callSize / (hand.potSize+hand.callSize) && !(winRate < 35))) {
 				Call(myStack,oppStack,hand,deck);
-				return;
 			} else {
 				Fold(myStack,oppStack,hand);
-				return;
 			}
 		}
 
@@ -834,91 +705,31 @@ void action(int deck[52][2],Hand& hand,int *myStack,int *oppStack,int big) {
 		int j=0;
 		for(int i=0;i<52;i++) {
 			if(!((deck[i][0]==hand.myCards[0][0] && deck[i][1]==hand.myCards[0][1]) || (deck[i][0]==hand.myCards[1][0] && deck[i][1]==hand.myCards[1][1])) || (deck[i][0]==hand.flop[1][0] && deck[i][1]==hand.flop[1][1]) || (deck[i][0]==hand.flop[1][0] && deck[i][1]==hand.flop[1][1]) || (deck[i][0]==hand.flop[1][0] && deck[i][1]==hand.flop[1][1]) || (deck[i][0]==hand.turn[1][0] && deck[i][1]==hand.turn[1][1]) || (deck[i][0]==hand.river[1][0] && deck[i][1]==hand.river[1][1])) {
-				turnDeck[j][0]=deck[i][0];
-				turnDeck[j][1]=deck[i][1];
+				riverDeck[j][0]=deck[i][0];
+				riverDeck[j][1]=deck[i][1];
 				j++;
 			}
 		}
 
-		float winRate = simHands(hand.myCards,45,turnDeck,10000,hand,&hand.oppRange,&hand.myRange,false);
-		cout<<winRate<<endl;
+		float winRate = simHands(hand.myCards,45,riverDeck,10000,hand,&hand.oppRange,&hand.myRange,false);
+		float rangeWinRate = simHands(hand.myCards,45,riverDeck,10000,hand,&hand.oppRange,&hand.myRange,true);
+		cout<<winRate<<","<<rangeWinRate<<endl;
 
-		default_random_engine generator;
-		uniform_int_distribution<int> distribution(0,15);
-		if(hand.callSize==0) {
-			if(hand.aggressor) {
-				int checkUpTo=35+distribution(generator);
-				int thirdPot=60+distribution(generator);
-				int halfPot=thirdPot+20;
-				if(winRate<checkUpTo) {
-					default_random_engine gen;
-					uniform_int_distribution<int> distr(-1,3);
-					int bluff = distr(gen);
-					if(bluff<=0) {
-						Check(myStack,oppStack,hand,deck);
-					} else {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/bluff),deck);
-					}
-					return;
-				} else {
-					if(winRate<thirdPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/3.0),deck);
-						return;
-					} else if (winRate<halfPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/2.0),deck);
-						return;
-					} else {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)),deck);
-						return;
-					}
-				}
+		if(hand.callSize == 0) {
+			if(rangeWinRate > 60) {
+				Raise(myStack,oppStack,hand,(rangeWinRate/100)*hand.potSize,deck);
+			} else if (winRate > 50) {
+				Raise(myStack,oppStack,hand,(winRate/100)*hand.potSize,deck);
 			} else {
-				int checkUpTo=50+distribution(generator);
-				int thirdPot=65+distribution(generator);
-				int halfPot=thirdPot+20;
-				if(winRate<checkUpTo) {
-					default_random_engine gen;
-					uniform_int_distribution<int> distr(0,5);
-					uniform_int_distribution<int> distri(1,3);
-					int bluff = distr(gen);
-					int size = distri(gen);
-					if(bluff==0) {
-						Check(myStack,oppStack,hand,deck);
-					} else {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/size),deck);
-					}
-					return;
-				} else {
-					if(winRate<thirdPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/3.0),deck);
-						return;
-					} else if (winRate<halfPot) {
-						Raise(myStack,oppStack,hand,(int)((hand.potSize)/2.0),deck);
-						return;
-					} else {
-						default_random_engine gen;
-						uniform_int_distribution<int> distr(0,1);
-						int rand=distr(gen);
-						if(rand==0) {
-							Raise(myStack,oppStack,hand,(int)((hand.potSize)),deck);
-						} else {
-							Check(myStack,oppStack,hand,deck);
-						}
-						return;
-					}
-				}
+				Check(myStack,oppStack,hand,deck);
 			}
 		} else {
-			int raiseAfter=70+distribution(generator);
-			if(winRate>raiseAfter) {
-				Raise(myStack,oppStack,hand,3*hand.callSize,deck);
-				return;
-			} else if ((hand.callSize<=hand.potSize-hand.callSize && winRate>100*hand.callSize/(hand.potSize+hand.callSize)) || winRate>75) {
+			if(winRate > 70 || rangeWinRate > 60) {
+				Raise(myStack,oppStack,hand,(rangeWinRate/100)*hand.potSize,deck);
+			} else if((winRate > 100 * hand.callSize / (hand.potSize+hand.callSize) && !(winRate < 35))) {
 				Call(myStack,oppStack,hand,deck);
-				return;
 			} else {
 				Fold(myStack,oppStack,hand);
-				return;
 			}
 		}
 
@@ -1106,6 +917,10 @@ void Fold(int *myStack,int *oppStack,Hand& hand) {
 void Check(int *myStack,int *oppStack,Hand& hand,int deck[52][2]) {
 	cout<<"Check.\n";
 	hand.aggressor=false;
+	if(hand.stage==0) {
+		float equityU=.6f;
+		updateRange2(equityU,&hand.myRange,&hand.oppRange,deck,hand);
+	}
 	float equity=.8;
 	updateRange2(equity,&hand.myRange,&hand.oppRange,deck,hand);
 }
@@ -1114,6 +929,12 @@ void Call(int *myStack,int *oppStack,Hand& hand,int deck[52][2]) {
 	cout<<"Call.\n";
 	hand.potSize+=hand.callSize;
 	*myStack-=hand.callSize;
+	if(hand.stage==0) {
+		float equityL=.4f;
+		float equityU=.6f;
+		updateRange(equityL,&hand.myRange,&hand.oppRange,deck,hand);
+		updateRange2(equityU,&hand.myRange,&hand.oppRange,deck,hand);
+	}
 	float equity=(1.0*hand.callSize)/(1.0*hand.potSize);
 	hand.callSize=0;
 	hand.aggressor=false;
@@ -1122,10 +943,10 @@ void Call(int *myStack,int *oppStack,Hand& hand,int deck[52][2]) {
 
 void Raise(int *myStack,int *oppStack,Hand& hand,int value,int deck[52][2]) {
 	hand.aggressor=true;
-	if(value>*myStack) {
+	if(value>*myStack-value) {
 		value=*myStack;
 	}
-	if(value>*oppStack) {
+	if(value>*oppStack-value) {
 		value=*oppStack;
 	}
 	if(value==0) {
@@ -1133,16 +954,26 @@ void Raise(int *myStack,int *oppStack,Hand& hand,int value,int deck[52][2]) {
 		return;
 	}
 	cout<<"Raise by "<<value<<endl;
-	hand.potSize+=value;
+
+	hand.potSize+=hand.callSize+value;
+	*myStack-=hand.callSize+value;
 	int pre=hand.callSize;
-	hand.callSize=value-hand.callSize;
-	*myStack-=value;
+	hand.callSize=value;
+
+	// hand.potSize+=value;
+	// int pre=hand.callSize;
+	// hand.callSize=value-hand.callSize;
+	// *myStack-=value;
 	// float equity=(1.0*pre+value)/(1.0**potSize+value);
 	// updateRange(equity,opRange,myRange,stage,myCards,deck,flop,turn,river);
+	if(hand.stage==0 && hand.numBets==0) {
+		float equity=.5f;
+		updateRange(equity,&hand.myRange,&hand.oppRange,deck,hand);
+	}
 	float e=(1.0*pre+hand.callSize)/(1.0*hand.potSize+hand.callSize);
-	float foldEq=foldEquity(e,&hand.myRange,&hand.oppRange,deck,hand);
+	float foldEq=foldEquity(e,&hand.oppRange,&hand.myRange,deck,hand);
 	float equity=foldEq+(1-foldEq)*(e);
-	updateRange(equity,&hand.oppRange,&hand.myRange,deck,hand);
+	updateRange(equity,&hand.myRange,&hand.oppRange,deck,hand);
 }
 
 
